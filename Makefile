@@ -14,6 +14,6 @@ demo: $(BUILD)/demo
 test: $(BUILD)/test_driver
 	./$(BUILD)/test_driver
 rtl-test:
-	iverilog -g2012 -s tb_custom_accel -o $(BUILD)/rtl_tb rtl/custom_accel.sv rtl/mmio_slave.sv rtl/tb_custom_accel.sv && vvp $(BUILD)/rtl_tb
+	iverilog -g2012 -s tb_custom_accel -o $(BUILD)/rtl_tb rtl/custom_accel.sv rtl/mmio_slave.sv rtl/riscv_mmio_peripheral.sv rtl/tb_custom_accel.sv && vvp $(BUILD)/rtl_tb
 clean:
 	rm -rf $(BUILD)
