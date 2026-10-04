@@ -1,26 +1,41 @@
 # RISC-V Custom Peripheral Memory-Mapped Driver
 
-A portfolio-ready FPGA/RISC-V reference design showing how bare-metal software controls a custom hardware accelerator through a memory-mapped register interface.
+A complete, portable reference design showing how RISC-V firmware can control a custom FPGA peripheral through memory-mapped registers.
 
-## Project flow
+## System architecture
 
-**RISC-V firmware → C driver → MMIO registers → bus decoder → custom RTL accelerator → result/IRQ**
+**RISC-V firmware -> C MMIO driver -> SoC-facing bus wrapper -> address decoder -> custom RTL accelerator -> result + interrupt**
 
-The accelerator accepts two 32-bit operands and performs unsigned multiplication. A host-side simulation mode makes the driver testable without a physical RISC-V board.
+The accelerator accepts two 32-bit operands and performs unsigned multiplication. The repository includes host-side driver simulation, RTL verification and target-style RISC-V startup/linker artifacts.
 
-## Implemented
+## What is implemented
 
-- SystemVerilog custom accelerator.
-- Memory-mapped slave/address decoder.
-- Register-based control, status, operands and result.
+### Hardware / RTL
+- Custom SystemVerilog multiplication accelerator.
+- Memory-mapped register interface at 0x4001_0000.
+- Control and status registers.
+- BUSY and DONE state.
 - Deterministic multi-cycle operation.
-- Completion IRQ output.
-- Bare-metal-style C driver using volatile MMIO accesses.
-- Host simulation backend via `ACCEL_SIM`.
-- Self-checking RTL testbench.
-- Software regression tests.
-- Memory-map and architecture documentation.
-- Make-based build and verification flow.
+- Completion interrupt pulse.
+- Generic SoC-facing memory transaction wrapper.
+- Self-checking SystemVerilog testbench.
+
+### Embedded software
+- Bare-metal-style C driver.
+- Volatile MMIO accesses for target deployment.
+- Host simulation backend using ACCEL_SIM.
+- Bounded polling with timeout.
+- Example application.
+- Target-style RISC-V startup assembly.
+- Target-style linker script.
+- Bare-metal application entry point.
+
+### Verification
+- Host driver regression tests.
+- RTL simulation target.
+- Result checking.
+- Interrupt pulse checking.
+- Organized architecture, memory-map and integration documentation.
 
 ## Memory map
 
@@ -41,40 +56,49 @@ Peripheral base: **0x4001_0000**
 ├── rtl/
 │   ├── custom_accel.sv
 │   ├── mmio_slave.sv
+│   ├── riscv_mmio_peripheral.sv
 │   └── tb_custom_accel.sv
 ├── software/
 │   ├── include/
 │   │   └── custom_accel.h
-│   └── src/
-│       ├── custom_accel.c
-│       └── main.c
+│   ├── linker/
+│   │   └── link.ld
+│   ├── src/
+│   │   ├── baremetal_main.c
+│   │   ├── custom_accel.c
+│   │   └── main.c
+│   └── startup/
+│       └── start.S
 ├── tests/
 │   └── test_driver.c
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── MEMORY_MAP.md
+│   ├── RISCV_INTEGRATION.md
 │   └── TEST_PLAN.md
 ├── Makefile
 ├── .gitignore
 └── README.md
 ```
 
-## Build and run
+## Host verification
 
-For the host-side C simulation:
+Requirements: C11 compiler and make.
+
+Run:
+
+```bash
+make
+```
+
+Or separately:
 
 ```bash
 make demo
 make test
 ```
 
-Build both:
-
-```bash
-make
-```
-
-Expected software demo:
+Expected demo:
 
 ```text
 RISC-V custom peripheral demo: 123 x 456 = 56088
@@ -86,51 +110,77 @@ Expected driver test:
 All driver tests passed.
 ```
 
-For RTL simulation, install a SystemVerilog-capable simulator such as Icarus Verilog and run:
+The host path defines ACCEL_SIM, replacing physical MMIO with an in-memory register model. This makes the C driver deterministic and testable without an FPGA.
+
+## RTL verification
+
+With Icarus Verilog installed:
 
 ```bash
 make rtl-test
 ```
 
-## How the driver works
+The RTL target now compiles the accelerator, MMIO decoder, RISC-V-facing wrapper and self-checking testbench.
 
-The application calls:
+The testbench verifies:
+1. reset behavior,
+2. operand writes,
+3. START command,
+4. multi-cycle completion,
+5. DONE/IRQ assertion,
+6. one-cycle IRQ pulse,
+7. multiplication result.
 
-```c
-accel_run(123, 456, &result);
-```
+## Target-side RISC-V path
 
-The driver writes IN0 and IN1, asserts START through CTRL, then polls STATUS until DONE is reported and reads OUT.
+The repository also contains the pieces needed for a real bare-metal build:
 
-On a real RISC-V target, the non-simulation driver uses volatile memory-mapped accesses at the configured peripheral address. `ACCEL_SIM` replaces those accesses with an in-memory register model for host testing.
+- startup/start.S — reset entry and stack initialization.
+- linker/link.ld — example 64 KiB RAM memory model.
+- baremetal_main.c — target application.
+- custom_accel.c — real volatile MMIO driver when ACCEL_SIM is disabled.
+
+A concrete deployment still needs a selected RISC-V CPU, bus/interconnect, RAM/ROM implementation, clock/reset system, FPGA constraints and RISC-V cross-toolchain.
 
 ## Presentation flow
 
-1. Start with the CPU-to-peripheral architecture.
-2. Show the 0x4001_0000 memory map.
-3. Explain why MMIO registers use volatile accesses in the driver.
-4. Walk through START → BUSY → completion → DONE → OUT.
-5. Show the SystemVerilog accelerator datapath.
-6. Run the software test and demo.
-7. Run the RTL testbench and discuss hardware integration.
+1. Explain the CPU-to-peripheral architecture.
+2. Show the 0x4001_0000 register map.
+3. Explain volatile MMIO accesses.
+4. Demonstrate IN0/IN1 -> START -> BUSY -> DONE -> OUT.
+5. Explain the RTL accelerator state machine and multiplication datapath.
+6. Show the interrupt pulse.
+7. Run the host driver tests.
+8. Run the RTL testbench.
+9. Explain how the neutral bus wrapper connects to a selected RISC-V SoC.
 
 ## Engineering scope
 
-This is a **reference educational implementation**, not a complete FPGA SoC.
+This is a **complete reference implementation**, but not a claim of physical FPGA validation.
 
-The repository does not claim a specific RISC-V core, FPGA board, CPU interconnect or synthesis result. A target deployment still needs:
-- a concrete RISC-V CPU/bus adapter,
-- clock/reset integration,
-- synthesis constraints,
-- address-map integration,
-- toolchain/linker configuration,
-- board-level validation.
+The repository deliberately does not pretend to support a specific RISC-V core, FPGA board or commercial bus protocol. The SoC-facing wrapper is a simple synchronous interface that a real CPU/interconnect adapter can connect to.
 
-The provided RTL testbench and host simulation are the verification mechanisms included in this repository.
+A production implementation would additionally require:
+- selected CPU/interconnect integration,
+- synthesis and timing constraints,
+- clock-domain/reset analysis,
+- hardware interrupt-controller integration,
+- firmware image generation,
+- FPGA programming,
+- board-level validation,
+- formal/property verification where appropriate.
 
-## Extension ideas
+## Extension path
 
-A next-stage version could add an AXI4-Lite/Wishbone/custom RISC-V bus adapter, interrupt controller integration, DMA, configurable accelerator operations, performance counters and FPGA synthesis reports.
+Natural next upgrades include:
+- AXI4-Lite or Wishbone adapter,
+- interrupt-controller integration,
+- configurable arithmetic operations,
+- performance counters,
+- DMA support,
+- FPGA synthesis reports,
+- hardware-in-the-loop testing,
+- integration with an actual open-source RISC-V SoC.
 
 ## License
 
